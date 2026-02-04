@@ -1,0 +1,24 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "A": {
+      "item": "re_endergy:stellar_alloy_ingot"
+    },
+    "B": {
+      "item": "minecraft:shulker_shell"
+    },
+    "C": {
+      "item": "re_endergy:capacitor_melodic"
+    }
+  },
+  "pattern": [
+    " A ",
+    "CBC",
+    " A "
+  ],
+  "result": {
+    "count": 1,
+    "id": "re_endergy:capacitor_stellar"
+  }
+}

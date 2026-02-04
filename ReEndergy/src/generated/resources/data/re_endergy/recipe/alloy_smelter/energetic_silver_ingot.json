@@ -1,0 +1,23 @@
+{
+  "type": "enderio:alloy_smelting",
+  "energy": 10000,
+  "experience": 0.8,
+  "inputs": [
+    {
+      "count": 1,
+      "item": "minecraft:redstone"
+    },
+    {
+      "count": 1,
+      "item": "minecraft:iron_ingot"
+    },
+    {
+      "count": 1,
+      "item": "minecraft:glowstone_dust"
+    }
+  ],
+  "output": {
+    "count": 1,
+    "id": "re_endergy:energetic_silver_ingot"
+  }
+}

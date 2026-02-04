@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "re_endergy:item/grinding_ball/alloy_ball_stellar_alloy"
+  }
+}
