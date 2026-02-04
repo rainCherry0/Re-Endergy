@@ -1,0 +1,265 @@
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+    id 'net.neoforged.moddev' version '2.0.139'
+    id 'idea'
+}
+
+version = mod_version
+group = mod_group_id
+
+
+repositories {
+    mavenLocal()
+
+    // --- CurseMaven 仓库 (用于 curse.maven:...) ---
+    maven {
+        url "https://cursemaven.com"
+        content {
+            includeGroup "curse.maven"
+        }
+    }
+
+    // --- NeoForge 官方仓库 ---
+    maven {
+        url "https://maven.neoforged.net/releases/"
+    }
+
+    // --- Modrinth Maven 仓库 (用于 maven.modrinth:...) ---
+    maven {
+        url "https://api.modrinth.com/maven"
+        content {
+            includeGroup "maven.modrinth"
+        }
+    }
+}
+
+base {
+    archivesName = mod_id
+}
+
+// Minecraft 1.21.1 强制要求 Java 21
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+
+neoForge {
+    // 指定 NeoForge 版本 (从 gradle.properties 读取)
+    version = project.neo_version
+
+    parchment {
+        mappingsVersion = project.parchment_mappings_version
+        minecraftVersion = project.parchment_minecraft_version
+    }
+
+    // 运行配置 (Run Configurations)
+    runs {
+        // --- 客户端配置 ---
+        client {
+            client()
+            try {
+                // 默认的运行目录通常是项目根目录下的 run 文件夹
+                def savesDir = project.file('run/saves')
+
+                if (savesDir.exists() && savesDir.isDirectory()) {
+                    // 过滤出是文件夹的项（排除 possible data files），取第一个
+                    def firstWorld = savesDir.listFiles().find { it.isDirectory() }
+
+                    if (firstWorld != null) {
+                        // 找到了！将文件夹名传给游戏
+                        programArguments.addAll '--quickPlaySingle', firstWorld.name
+                        println "Found local save for quick play: ${firstWorld.name}"
+                    }
+                }
+            } catch (Exception e) {
+                // 如果查找过程出错，不做任何操作，正常启动到主菜单
+                println "Failed to auto-detect save folder: ${e.message}"
+            }
+            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+        }
+
+        // --- 服务端配置 ---
+        server {
+            server()
+            programArgument '--nogui'
+            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+        }
+
+        // --- 数据生成配置 (DataGen) ---
+        // 这是以后自动生成方块模型、配方 JSON 的关键
+        data {
+            data()
+            programArguments.addAll '--mod', project.mod_id, '--all', '--output', file('src/generated/resources/').getAbsolutePath(), '--existing', file('src/main/resources/').getAbsolutePath()
+        }
+
+        // --- 全局配置 (应用到所有运行环境) ---
+        configureEach {
+            // 推荐开启注册表日志，方便调试物品注册问题
+            systemProperty 'forge.logging.markers', 'REGISTRIES'
+
+            // 控制台日志级别 (DEBUG 信息最全)
+            logLevel = org.slf4j.event.Level.DEBUG
+        }
+    }
+
+    mods {
+        // 定义 Mod 源码绑定
+        "${mod_id}" {
+            sourceSet(sourceSets.main)
+        }
+    }
+}
+
+// 将 DataGen 生成的资源包含到构建路径中
+sourceSets.main.resources { srcDir 'src/generated/resources' }
+
+// 设置 localRuntime 配置
+configurations {
+    runtimeClasspath.extendsFrom localRuntime
+}
+
+dependencies {
+    //NeoForge 核心
+    implementation "net.neoforged:neoforge:${neo_version}"
+    //EIO
+    implementation "maven.modrinth:enderio:WahABQeG"
+    //在打包的时候，忽略EIO本体依赖包，主要还是因为这些要调用的末影接口类套了两层jar，这3个jar在一个jar包的里面，
+    //只能单独提取出来之后，忽视3个jar包，避免出现冲突和本项目在打包之后，文件变大
+    compileOnly files("libs/com.enderio.enderio-base-8.0.7-alpha.jar")
+    compileOnly files("libs/com.enderio.endercore-8.0.7-alpha.jar")
+    compileOnly files("libs/Regilite-1.21-0.0.4-alpha.jar")
+    // JEI
+    implementation "maven.modrinth:jei:YAcQ6elZ"
+    //钛(工业先锋前置)
+    implementation "maven.modrinth:titanium:XweNZVuM"
+    //工业先锋
+    implementation "maven.modrinth:industrial-foregoing:c5iewpoX"
+    //MEK
+    implementation "maven.modrinth:mekanism:D32JUF51"
+    //沉浸工程
+    implementation "maven.modrinth:immersiveengineering:uNRARSH2"
+
+    // logic: 检测当前运行的任务是否包含 'runData'
+    // 只有当任务列表里 *不包含* runData 时，才加载下面的优化/UI模组，等等MOD
+    def isDataGen = gradle.startParameter.taskNames.any { it.toLowerCase().contains('rundata') }
+    if (!isDataGen) {
+        // --- 仅在游戏内 (runClient/runServer) 生效，DataGen 时自动禁用 ---
+        // 龙之研究前置
+        implementation "maven.modrinth:codechicken-lib:gQ1srSKh"
+        implementation "maven.modrinth:brandons-core:56nwe5IX"
+        //龙之研究
+        runtimeOnly "maven.modrinth:draconic-evolution:WYBCse8z"
+        //输入法冲突修复
+        runtimeOnly "maven.modrinth:imblocker-original:FGYhLbmY"
+        //现代化UI
+        runtimeOnly "maven.modrinth:modern-ui:RM220vWV"
+        //通用拼音搜索
+        runtimeOnly "maven.modrinth:justenoughcharacters:TdUA8TeZ"
+        //现代化修复(优化性能和加载速度)
+        runtimeOnly "maven.modrinth:modernfix:c759JLsq"
+        //铁氧体磁芯
+        runtimeOnly "maven.modrinth:ferrite-core:CnpoQxCx"
+        //embeddium
+        runtimeOnly "maven.modrinth:embeddium:J7b96IEd"
+        //ImmediatelyFast
+        runtimeOnly "maven.modrinth:immediatelyfast:PhxY0iHw"
+        //鼠标手势
+        runtimeOnly "maven.modrinth:mouse-tweaks:9I21YYxf"
+    } else {
+        println "Detected runData task: Optimization and UI mods have been excluded to prevent crashes."
+    }
+    //复制用模板，更多的1方便双击全选粘贴
+    //runtimeOnly "maven.modrinth:111:1111"
+    //解析：
+    //implementation (实现/依赖)
+    //runtimeOnly (仅运行时)
+}
+
+// 自动生成 mods.toml 中的元数据 (版本号、描述等)
+var generateModMetadata = tasks.register("generateModMetadata", ProcessResources) {
+    var replaceProperties = [
+            minecraft_version      : minecraft_version,
+            minecraft_version_range: minecraft_version_range,
+            neo_version            : neo_version,
+            loader_version_range   : loader_version_range,
+            mod_id                 : mod_id,
+            mod_name               : mod_name,
+            mod_license            : mod_license,
+            mod_version            : mod_version,
+    ]
+    inputs.properties replaceProperties
+    expand replaceProperties
+    from "src/main/templates"
+    into "build/generated/sources/modMetadata"
+}
+
+// 确保在编译前先生成元数据
+sourceSets.main.resources.srcDir generateModMetadata
+neoForge.ideSyncTask generateModMetadata
+
+// 编译设置：强制 UTF-8 编码，避免中文注释乱码
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+// IDEA 设置：自动下载源码和文档
+idea {
+    module {
+        downloadSources = true
+        downloadJavadoc = true
+    }
+}
+
+// --- 打包过滤配置 ---
+
+// 配置最终生成的 Modal Jar
+tasks.named('jar', Jar) {
+    //去除重复文件
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    // 排除 DataGen 相关的包
+    // 注意：路径匹配的是编译后的 .class 文件路径
+    exclude 'com/sakurain/re_endergy/util/datagen/**'
+
+    // 如果你只想排除 datagen，上面那行就够了。
+    // 再次强调：千万不要排除 util/item/，否则 Def 枚举丢失，Mod 必崩。
+
+    // 如果你有其他的辅助工具类只在 datagen 用，也可以在这里加 exclude
+    // exclude 'com/sakurain/re_endergy/util/SomeOtherTool.class'
+
+    // 确保生成的资源文件 (JSON) 被打包进去 (默认是包含的，这里再次确认)
+    from('src/generated/resources') {
+        exclude '.cache' // 排除 DataGen 产生的缓存文件夹，减小体积
+    }
+    manifest {
+        attributes([
+                // =======================
+                // 1. 规范信息 (Specification)
+                // 定义了"这也是个什么东西"。通常用于定义 API 或模组的通用身份。
+                // =======================
+                // 规范标题：通常填模组名称。意思是"这个包遵循 Endergy Resurrected 的设计规范"。
+                "Specification-Title"     : mod_name,
+                // 规范供应商：谁制定了这个规范？也就是作者你 (Sakurain)。
+                "Specification-Vendor"    : "Sakurain",
+                // 规范版本：通常填 "1"，代表第一版设计规范。或者是模组版本。
+                "Specification-Version"   : "1",
+                // =======================
+                // 2. 实现信息 (Implementation)
+                // 定义了"这个文件具体的代码内容"。这是最常用的部分。
+                // =======================
+                // 实现标题：项目的实际名称。Gradle 中 project.name 通常就是项目文件夹名。
+                "Implementation-Title"    : project.name,
+                // 实现版本：这个 JAR 包具体的版本号 (例如 1.0.0)。
+                // project.jar.archiveVersion 会自动读取你在 gradle.properties 里写的 mod_version。
+                "Implementation-Version"  : project.jar.archiveVersion,
+                // 实现供应商：比如作者名
+                "Implementation-Vendor"   : "Sakurain",
+                // =======================
+                // 3. 构建时间戳 (Timestamp)
+                // 最有用的一行！记录了这个文件是哪年哪月哪分哪秒被编译出来的。
+                // =======================
+                // 格式化为：年-月-日T时:分:秒+时区
+                // 作用：如果玩家反馈 Bug，你可以问他"你的时间戳是多少？"
+                // 这样你能分清他是用的大前天的测试版，还是今天的正式版，防止版本混淆。
+                "Implementation-Timestamp": new Date().format("yyyy-MM-dd'T'HH:mm:ssZ")
+        ])
+    }
+
+}

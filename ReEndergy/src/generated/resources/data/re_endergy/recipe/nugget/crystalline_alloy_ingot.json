@@ -1,0 +1,13 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    {
+      "item": "re_endergy:crystalline_alloy_nugget"
+    }
+  ],
+  "result": {
+    "count": 9,
+    "id": "re_endergy:crystalline_alloy_ingot"
+  }
+}

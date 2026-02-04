@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "re_endergy:item/nugget/melodic_alloy_nugget"
+  }
+}

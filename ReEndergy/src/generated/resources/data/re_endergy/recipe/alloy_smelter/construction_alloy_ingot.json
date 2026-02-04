@@ -1,0 +1,23 @@
+{
+  "type": "enderio:alloy_smelting",
+  "energy": 10000,
+  "experience": 0.3,
+  "inputs": [
+    {
+      "count": 1,
+      "item": "minecraft:copper_ingot"
+    },
+    {
+      "count": 1,
+      "item": "minecraft:iron_ingot"
+    },
+    {
+      "count": 1,
+      "item": "minecraft:gravel"
+    }
+  ],
+  "output": {
+    "count": 1,
+    "id": "re_endergy:construction_alloy_ingot"
+  }
+}

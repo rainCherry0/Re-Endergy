@@ -1,0 +1,1721 @@
+Project Context Breakdown:
+Root: ReEndergy
+------------------------------------------------------------
+
+Directory Structure:
+.
+├── build.gradle
+├── dist/
+├── gradle.properties
+├── libs/
+│   ├── Regilite-1.21-0.0.4-alpha.jar
+│   ├── com.enderio.endercore-8.0.7-alpha.jar
+│   ├── com.enderio.enderio-base-8.0.7-alpha.jar
+├── settings.gradle
+├── src/
+│   ├── main/
+│   │   ├── java/
+│   │   │   ├── com/
+│   │   │   │   ├── sakurain/
+│   │   │   │   │   ├── re_endergy/
+│   │   │   │   │   │   ├── Config.java
+│   │   │   │   │   │   ├── EndergyResurrectedClient.java
+│   │   │   │   │   │   ├── ReEndergy.java
+│   │   │   │   │   │   ├── util/
+│   │   │   │   │   │   │   ├── datagen/
+│   │   │   │   │   │   │   │   ├── DataGenerators.java
+│   │   │   │   │   │   │   │   ├── ModBlockTagsProvider.java
+│   │   │   │   │   │   │   │   ├── ModItemModelProvider.java
+│   │   │   │   │   │   │   │   ├── ModItemTagsProvider.java
+│   │   │   │   │   │   │   │   ├── ModRecipeProvider.java
+│   │   │   │   │   │   │   │   ├── ModRecipeProvider_beifen.java
+│   │   │   │   │   │   │   │   ├── ModZhCnLangProvider.java
+│   │   │   │   │   │   │   │   ├── alloy_smelter/
+│   │   │   │   │   │   │   │   │   ├── AlloyRecipeProvider.java
+│   │   │   │   │   │   │   ├── item/
+│   │   │   │   │   │   │   │   ├── CapacitorDef.java
+│   │   │   │   │   │   │   │   ├── GrindingBallDef.java
+│   │   │   │   │   │   │   │   ├── MaterialDef.java
+│   │   ├── resources/
+│   │   │   ├── pack.mcmeta
+│   │   ├── templates/
+│   │   │   ├── META-INF/
+
+------------------------------------------------------------
+
+>>>>>>>>> FILE_START: build.gradle <<<<<<<<<
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+    id 'net.neoforged.moddev' version '2.0.139'
+    id 'idea'
+}
+
+version = mod_version
+group = mod_group_id
+
+
+repositories {
+    mavenLocal()
+
+    // --- CurseMaven 仓库 (用于 curse.maven:...) ---
+    maven {
+        url "https://cursemaven.com"
+        content {
+            includeGroup "curse.maven"
+        }
+    }
+
+    // --- NeoForge 官方仓库 ---
+    maven {
+        url "https://maven.neoforged.net/releases/"
+    }
+
+    // --- Modrinth Maven 仓库 (用于 maven.modrinth:...) ---
+    maven {
+        url "https://api.modrinth.com/maven"
+        content {
+            includeGroup "maven.modrinth"
+        }
+    }
+}
+
+base {
+    archivesName = mod_id
+}
+
+// Minecraft 1.21.1 强制要求 Java 21
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+
+neoForge {
+    // 指定 NeoForge 版本 (从 gradle.properties 读取)
+    version = project.neo_version
+
+    parchment {
+        mappingsVersion = project.parchment_mappings_version
+        minecraftVersion = project.parchment_minecraft_version
+    }
+
+    // 运行配置 (Run Configurations)
+    runs {
+        // --- 客户端配置 ---
+        client {
+            client()
+            try {
+                // 默认的运行目录通常是项目根目录下的 run 文件夹
+                def savesDir = project.file('run/saves')
+
+                if (savesDir.exists() && savesDir.isDirectory()) {
+                    // 过滤出是文件夹的项（排除 possible data files），取第一个
+                    def firstWorld = savesDir.listFiles().find { it.isDirectory() }
+
+                    if (firstWorld != null) {
+                        // 找到了！将文件夹名传给游戏
+                        programArguments.addAll '--quickPlaySingle', firstWorld.name
+                        println "Found local save for quick play: ${firstWorld.name}"
+                    }
+                }
+            } catch (Exception e) {
+                // 如果查找过程出错，不做任何操作，正常启动到主菜单
+                println "Failed to auto-detect save folder: ${e.message}"
+            }
+            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+        }
+
+        // --- 服务端配置 ---
+        server {
+            server()
+            programArgument '--nogui'
+            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+        }
+
+        // --- 数据生成配置 (DataGen) ---
+        // 这是以后自动生成方块模型、配方 JSON 的关键
+        data {
+            data()
+            programArguments.addAll '--mod', project.mod_id, '--all', '--output', file('src/generated/resources/').getAbsolutePath(), '--existing', file('src/main/resources/').getAbsolutePath()
+        }
+
+        // --- 全局配置 (应用到所有运行环境) ---
+        configureEach {
+            // 推荐开启注册表日志，方便调试物品注册问题
+            systemProperty 'forge.logging.markers', 'REGISTRIES'
+
+            // 控制台日志级别 (DEBUG 信息最全)
+            logLevel = org.slf4j.event.Level.DEBUG
+        }
+    }
+
+    mods {
+        // 定义 Mod 源码绑定
+        "${mod_id}" {
+            sourceSet(sourceSets.main)
+        }
+    }
+}
+
+// 将 DataGen 生成的资源包含到构建路径中
+sourceSets.main.resources { srcDir 'src/generated/resources' }
+
+// 设置 localRuntime 配置
+configurations {
+    runtimeClasspath.extendsFrom localRuntime
+}
+
+dependencies {
+    //NeoForge 核心
+    implementation "net.neoforged:neoforge:${neo_version}"
+    //EIO
+    implementation "maven.modrinth:enderio:WahABQeG"
+    //在打包的时候，忽略EIO本体依赖包，主要还是因为这些要调用的末影接口类套了两层jar，这3个jar在一个jar包的里面，
+    //只能单独提取出来之后，忽视3个jar包，避免出现冲突和本项目在打包之后，文件变大
+    compileOnly files("libs/com.enderio.enderio-base-8.0.7-alpha.jar")
+    compileOnly files("libs/com.enderio.endercore-8.0.7-alpha.jar")
+    compileOnly files("libs/Regilite-1.21-0.0.4-alpha.jar")
+    // JEI
+    implementation "maven.modrinth:jei:YAcQ6elZ"
+    //钛(工业先锋前置)
+    implementation "maven.modrinth:titanium:XweNZVuM"
+    //工业先锋
+    implementation "maven.modrinth:industrial-foregoing:c5iewpoX"
+    //MEK
+    implementation "maven.modrinth:mekanism:D32JUF51"
+    //沉浸工程
+    implementation "maven.modrinth:immersiveengineering:uNRARSH2"
+
+    // logic: 检测当前运行的任务是否包含 'runData'
+    // 只有当任务列表里 *不包含* runData 时，才加载下面的优化/UI模组，等等MOD
+    def isDataGen = gradle.startParameter.taskNames.any { it.toLowerCase().contains('rundata') }
+    if (!isDataGen) {
+        // --- 仅在游戏内 (runClient/runServer) 生效，DataGen 时自动禁用 ---
+        // 龙之研究前置
+        implementation "maven.modrinth:codechicken-lib:gQ1srSKh"
+        implementation "maven.modrinth:brandons-core:56nwe5IX"
+        //龙之研究
+        runtimeOnly "maven.modrinth:draconic-evolution:WYBCse8z"
+        //输入法冲突修复
+        runtimeOnly "maven.modrinth:imblocker-original:FGYhLbmY"
+        //现代化UI
+        runtimeOnly "maven.modrinth:modern-ui:RM220vWV"
+        //通用拼音搜索
+        runtimeOnly "maven.modrinth:justenoughcharacters:TdUA8TeZ"
+        //现代化修复(优化性能和加载速度)
+        runtimeOnly "maven.modrinth:modernfix:c759JLsq"
+        //铁氧体磁芯
+        runtimeOnly "maven.modrinth:ferrite-core:CnpoQxCx"
+        //embeddium
+        runtimeOnly "maven.modrinth:embeddium:J7b96IEd"
+        //ImmediatelyFast
+        runtimeOnly "maven.modrinth:immediatelyfast:PhxY0iHw"
+        //鼠标手势
+        runtimeOnly "maven.modrinth:mouse-tweaks:9I21YYxf"
+    } else {
+        println "Detected runData task: Optimization and UI mods have been excluded to prevent crashes."
+    }
+    //复制用模板，更多的1方便双击全选粘贴
+    //runtimeOnly "maven.modrinth:111:1111"
+    //解析：
+    //implementation (实现/依赖)
+    //runtimeOnly (仅运行时)
+}
+
+// 自动生成 mods.toml 中的元数据 (版本号、描述等)
+var generateModMetadata = tasks.register("generateModMetadata", ProcessResources) {
+    var replaceProperties = [
+            minecraft_version      : minecraft_version,
+            minecraft_version_range: minecraft_version_range,
+            neo_version            : neo_version,
+            loader_version_range   : loader_version_range,
+            mod_id                 : mod_id,
+            mod_name               : mod_name,
+            mod_license            : mod_license,
+            mod_version            : mod_version,
+    ]
+    inputs.properties replaceProperties
+    expand replaceProperties
+    from "src/main/templates"
+    into "build/generated/sources/modMetadata"
+}
+
+// 确保在编译前先生成元数据
+sourceSets.main.resources.srcDir generateModMetadata
+neoForge.ideSyncTask generateModMetadata
+
+// 编译设置：强制 UTF-8 编码，避免中文注释乱码
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+// IDEA 设置：自动下载源码和文档
+idea {
+    module {
+        downloadSources = true
+        downloadJavadoc = true
+    }
+}
+
+// --- 打包过滤配置 ---
+
+// 配置最终生成的 Modal Jar
+tasks.named('jar', Jar) {
+    // 排除 DataGen 相关的包
+    // 注意：路径匹配的是编译后的 .class 文件路径
+    exclude 'com/sakurain/re_endergy/util/datagen/**'
+
+    // 如果你只想排除 datagen，上面那行就够了。
+    // 再次强调：千万不要排除 util/item/，否则 Def 枚举丢失，Mod 必崩。
+
+    // 如果你有其他的辅助工具类只在 datagen 用，也可以在这里加 exclude
+    // exclude 'com/sakurain/re_endergy/util/SomeOtherTool.class'
+
+    // 确保生成的资源文件 (JSON) 被打包进去 (默认是包含的，这里再次确认)
+    from('src/generated/resources') {
+        exclude '.cache' // 排除 DataGen 产生的缓存文件夹，减小体积
+    }
+    manifest {
+        attributes([
+                // =======================
+                // 1. 规范信息 (Specification)
+                // 定义了"这也是个什么东西"。通常用于定义 API 或模组的通用身份。
+                // =======================
+                // 规范标题：通常填模组名称。意思是"这个包遵循 Endergy Resurrected 的设计规范"。
+                "Specification-Title"     : mod_name,
+                // 规范供应商：谁制定了这个规范？也就是作者你 (Sakurain)。
+                "Specification-Vendor"    : "Sakurain",
+                // 规范版本：通常填 "1"，代表第一版设计规范。或者是模组版本。
+                "Specification-Version"   : "1",
+                // =======================
+                // 2. 实现信息 (Implementation)
+                // 定义了"这个文件具体的代码内容"。这是最常用的部分。
+                // =======================
+                // 实现标题：项目的实际名称。Gradle 中 project.name 通常就是项目文件夹名。
+                "Implementation-Title"    : project.name,
+                // 实现版本：这个 JAR 包具体的版本号 (例如 1.0.0)。
+                // project.jar.archiveVersion 会自动读取你在 gradle.properties 里写的 mod_version。
+                "Implementation-Version"  : project.jar.archiveVersion,
+                // 实现供应商：比如作者名
+                "Implementation-Vendor"   : "Sakurain",
+                // =======================
+                // 3. 构建时间戳 (Timestamp)
+                // 最有用的一行！记录了这个文件是哪年哪月哪分哪秒被编译出来的。
+                // =======================
+                // 格式化为：年-月-日T时:分:秒+时区
+                // 作用：如果玩家反馈 Bug，你可以问他"你的时间戳是多少？"
+                // 这样你能分清他是用的大前天的测试版，还是今天的正式版，防止版本混淆。
+                "Implementation-Timestamp": new Date().format("yyyy-MM-dd'T'HH:mm:ssZ")
+        ])
+    }
+
+}
+>>>>>>>>> FILE_END: build.gradle <<<<<<<<<
+
+>>>>>>>>> FILE_START: gradle.properties <<<<<<<<<
+# Sets default memory used for gradle commands.
+# ???1G ?? 1.21 NeoForge ??????????? GC ??????? 3G
+org.gradle.jvmargs=-Xmx3G
+org.gradle.daemon=true
+org.gradle.parallel=true
+org.gradle.caching=true
+org.gradle.configuration-cache=true
+
+# Parchment Mappings check
+parchment_minecraft_version=1.21.1
+parchment_mappings_version=2024.11.17
+
+# Environment Properties
+minecraft_version=1.21.1
+
+# ???????? 1.22 ???????? 1.21.2 ????????? Mod ??????????
+minecraft_version_range=[1.21.1, 1.22)
+
+# The Neo version
+neo_version=21.1.215
+
+# NeoForge 1.21 Series usually uses FML loader version 4 or higher.
+loader_version_range=[4,)
+
+## Mod Properties
+
+# Mod ID (??????? mods.toml ? @Mod ????)
+mod_id=re_endergy
+
+# Mod Display Name (??????? Mod ?????????????)
+mod_name=Re:endergy
+
+# License (? MOD ? CC0????? MIT ?????????????????????)
+mod_license=MIT
+
+# Version
+mod_version=1.0.0
+
+# Group ID (Java ??????)
+# ??????????????? Java ?? package ???? package com.saku_rain.endergy_resurrected;
+mod_group_id=com.sakurain.re_endergy
+>>>>>>>>> FILE_END: gradle.properties <<<<<<<<<
+
+>>>>>>>>> FILE_START: settings.gradle <<<<<<<<<
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+    }
+}
+
+plugins {
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
+}
+>>>>>>>>> FILE_END: settings.gradle <<<<<<<<<
+
+>>>>>>>>> FILE_START: src/main/java/com/sakurain/re_endergy/Config.java <<<<<<<<<
+package com.sakurain.re_endergy;
+
+import com.sakurain.re_endergy.util.item.GrindingBallDef;
+import net.neoforged.neoforge.common.ModConfigSpec;
+
+import java.util.EnumMap;
+import java.util.Map;
+
+public class Config {
+    // 1. 核心构建器 (必须第一位)
+    private static final ModConfigSpec.Builder BUILDER = new ModConfigSpec.Builder();
+
+    // 2. 数据存储 Map (必须第二位)
+    public static final Map<GrindingBallDef, BallConfig> BALL_CONFIGS = new EnumMap<>(GrindingBallDef.class);
+
+    // 3. 普通配置项
+    public static final ModConfigSpec.BooleanValue ENABLE_NEW_CONDUITS = BUILDER
+            .comment("Whether to register the new energy conduits.")
+            .define("enableNewConduits", true);
+
+    // 4. 配置构建逻辑 (使用私有方法立即执行，规避 static 块陷阱)
+    private static final boolean INITIALIZED = init();
+
+    private static boolean init() {
+        BUILDER.comment("Grinding Ball Settings").push("grinding_balls");
+
+        for (GrindingBallDef def : GrindingBallDef.values()) {
+            BUILDER.push(def.name);
+            BALL_CONFIGS.put(def, new BallConfig(
+                    BUILDER.defineInRange("outputMultiplier", def.defaultOutput, 0.1, 100.0),
+                    BUILDER.defineInRange("bonusMultiplier", def.defaultBonus, 0.1, 100.0),
+                    BUILDER.defineInRange("powerUse", def.defaultPower, 0.01, 100.0),
+                    BUILDER.defineInRange("duration", def.defaultDuration, 1, Integer.MAX_VALUE)
+            ));
+            BUILDER.pop();
+        }
+
+        BUILDER.pop();
+        return true;
+    }
+
+    // 5. 生成 SPEC (最后一位)
+    public static final ModConfigSpec SPEC = BUILDER.build();
+
+    public record BallConfig(
+            ModConfigSpec.DoubleValue output,
+            ModConfigSpec.DoubleValue bonus,
+            ModConfigSpec.DoubleValue power,
+            ModConfigSpec.IntValue duration
+    ) {}
+}
+>>>>>>>>> FILE_END: src/main/java/com/sakurain/re_endergy/Config.java <<<<<<<<<
+
+>>>>>>>>> FILE_START: src/main/java/com/sakurain/re_endergy/EndergyResurrectedClient.java <<<<<<<<<
+package com.sakurain.re_endergy; // 确保包名正确
+
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.fml.common.Mod;
+import net.neoforged.neoforge.event.entity.player.ItemTooltipEvent;
+
+// 标记为客户端专用处理类
+@Mod(value = ReEndergy.MODID, dist = Dist.CLIENT)
+@EventBusSubscriber(modid = ReEndergy.MODID, value = Dist.CLIENT)
+public class EndergyResurrectedClient {
+
+    // 监听：物品提示框渲染事件
+    @SubscribeEvent
+    public static void onItemTooltip(ItemTooltipEvent event) {
+
+    }
+}
+>>>>>>>>> FILE_END: src/main/java/com/sakurain/re_endergy/EndergyResurrectedClient.java <<<<<<<<<
+
+>>>>>>>>> FILE_START: src/main/java/com/sakurain/re_endergy/ReEndergy.java <<<<<<<<<
+package com.sakurain.re_endergy;
+
+import com.enderio.base.api.capacitor.CapacitorData;
+import com.enderio.base.api.grindingball.GrindingBallData;
+import com.enderio.base.common.init.EIODataComponents;
+import com.mojang.logging.LogUtils;
+import com.sakurain.re_endergy.util.item.CapacitorDef;
+import com.sakurain.re_endergy.util.item.GrindingBallDef;
+import com.sakurain.re_endergy.util.item.MaterialDef;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.item.CreativeModeTab;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.neoforged.bus.api.IEventBus;
+import net.neoforged.neoforge.registries.DeferredHolder;
+import net.neoforged.neoforge.registries.DeferredRegister;
+import net.neoforged.fml.ModContainer;
+import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.config.ModConfig;
+import org.slf4j.Logger;
+
+import java.util.EnumMap;
+import java.util.Map;
+
+@Mod(ReEndergy.MODID)
+public class ReEndergy {
+    public static final String MODID = "re_endergy";
+    public static final Logger LOGGER = LogUtils.getLogger();
+
+    // 1. 注册器初始化
+    public static final DeferredRegister.Blocks BLOCKS = DeferredRegister.createBlocks(MODID);
+    public static final DeferredRegister.Items ITEMS = DeferredRegister.createItems(MODID);
+    public static final DeferredRegister<CreativeModeTab> CREATIVE_MODE_TABS = DeferredRegister.create(net.minecraft.core.registries.Registries.CREATIVE_MODE_TAB, MODID);
+
+    // 2. 物品 Map 初始化 (通过方法赋值)
+
+    // --- 磨珠 (Grinding Balls)
+    public static final Map<GrindingBallDef, DeferredHolder<Item, Item>> BALL_ITEMS = registerGrindingBalls();
+
+    // --- 电容 (Capacitors)
+    public static final Map<CapacitorDef, DeferredHolder<Item, Item>> CAPACITOR_ITEMS = registerCapacitors();
+
+    // 材料 (锭、粒)
+    public static final Map<MaterialDef, DeferredHolder<Item, Item>> MATERIAL_ITEMS = registerMaterials();
+
+    // 静态辅助方法：执行磨珠注册循环
+    private static Map<GrindingBallDef, DeferredHolder<Item, Item>> registerGrindingBalls() {
+        Map<GrindingBallDef, DeferredHolder<Item, Item>> map = new EnumMap<>(GrindingBallDef.class);
+
+        for (GrindingBallDef def : GrindingBallDef.values()) {
+            DeferredHolder<Item, Item> itemHolder = ITEMS.register(def.name, () -> new Item(
+                    new Item.Properties()
+                            // 绑定 Ender IO 的磨珠数据组件
+                            .component(EIODataComponents.GRINDING_BALL.get(), new GrindingBallData(
+                                    (float) def.defaultOutput,
+                                    (float) def.defaultBonus,
+                                    (float) def.defaultPower,
+                                    def.defaultDuration
+                            ))
+            ));
+            map.put(def, itemHolder);
+        }
+        return map;
+    }
+
+    // 静态辅助方法：执行电容注册循环
+    private static Map<CapacitorDef, DeferredHolder<Item, Item>> registerCapacitors() {
+        Map<CapacitorDef, DeferredHolder<Item, Item>> map = new EnumMap<>(CapacitorDef.class);
+        for (CapacitorDef def : CapacitorDef.values()) {
+            DeferredHolder<Item, Item> itemHolder = ITEMS.register(def.name, () -> {
+                //创建基础属性对象
+                Item.Properties properties = new Item.Properties();
+//                //特殊判断：如果是基岩粉电容，设置耐久度，暂时关闭，目前EIO本体还没有减少耐久度的API，等完整之后说不定就有了
+//                if (def == CapacitorDef.CAPACITOR_GRAINY) {
+//                    properties.durability(100);
+//                }
+                //构建电容数据
+                CapacitorData data = CapacitorData.simple((float) def.baseLevel);
+                //绑定组件并生成 Item
+                return new Item(properties.component(EIODataComponents.CAPACITOR_DATA.get(), data));
+            });
+            map.put(def, itemHolder);
+        }
+        return map;
+    }
+    // 静态辅助方法：执行金属锭、金属粒注册循环
+    private static Map<MaterialDef, DeferredHolder<Item, Item>> registerMaterials() {
+        Map<MaterialDef, DeferredHolder<Item, Item>> map = new EnumMap<>(MaterialDef.class);
+        for (MaterialDef def : MaterialDef.values()) {
+            // 普通材料不需要特殊的 Data Components，只注册最基础的 Item
+            DeferredHolder<Item, Item> itemHolder = ITEMS.register(def.name, () -> new Item(
+                    new Item.Properties()
+            ));
+            map.put(def, itemHolder);
+        }
+        return map;
+    }
+
+    // 3. 创造模式标签
+    public static final DeferredHolder<CreativeModeTab, CreativeModeTab> MOD_TAB = CREATIVE_MODE_TABS.register("main_tab", () -> CreativeModeTab.builder()
+            .title(Component.translatable("itemGroup.Re:Endergy"))
+            .icon(() -> {
+                // 安全检查：防止空指针
+                if (BALL_ITEMS.isEmpty() || BALL_ITEMS.get(GrindingBallDef.CRUDE_STEEL) == null) {
+                    return ItemStack.EMPTY;
+                }
+                return BALL_ITEMS.get(GrindingBallDef.CRUDE_STEEL).get().getDefaultInstance();
+            })
+            .displayItems((parameters, output) -> {
+                // 添加磨珠到创造栏
+                BALL_ITEMS.values().forEach(holder -> output.accept(holder.get()));
+                // 添加电容到创造栏
+                CAPACITOR_ITEMS.values().forEach(holder -> output.accept(holder.get()));
+                // 添加金属锭、金属粒到创造栏
+                MATERIAL_ITEMS.values().forEach(holder -> output.accept(holder.get()));
+            }).build());
+
+    // 构造函数
+    public ReEndergy(IEventBus modEventBus, ModContainer modContainer) {
+        // 总线注册
+        BLOCKS.register(modEventBus);
+        ITEMS.register(modEventBus);
+        CREATIVE_MODE_TABS.register(modEventBus);
+
+        // 注册配置
+        modContainer.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
+
+        LOGGER.info("Endergy Resurrected initialized.");
+    }
+}
+>>>>>>>>> FILE_END: src/main/java/com/sakurain/re_endergy/ReEndergy.java <<<<<<<<<
+
+>>>>>>>>> FILE_START: src/main/java/com/sakurain/re_endergy/util/datagen/DataGenerators.java <<<<<<<<<
+package com.sakurain.re_endergy.util.datagen;
+
+import com.sakurain.re_endergy.ReEndergy;
+import com.sakurain.re_endergy.util.datagen.alloy_smelter.AlloyRecipeProvider;
+import net.minecraft.core.HolderLookup;
+import net.minecraft.data.DataGenerator;
+import net.minecraft.data.PackOutput;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.common.data.ExistingFileHelper;
+import net.neoforged.neoforge.data.event.GatherDataEvent;
+
+import java.util.concurrent.CompletableFuture;
+
+@EventBusSubscriber(modid = ReEndergy.MODID)
+public class DataGenerators {
+
+    @SubscribeEvent
+    public static void gatherData(GatherDataEvent event) {
+        DataGenerator generator = event.getGenerator();
+        PackOutput packOutput = generator.getPackOutput();
+        ExistingFileHelper existingFileHelper = event.getExistingFileHelper();
+        CompletableFuture<HolderLookup.Provider> lookupProvider = event.getLookupProvider();
+        // 1. 物品模型
+        generator.addProvider(event.includeClient(), new ModItemModelProvider(packOutput, existingFileHelper));
+        // 2. 语言文件
+        generator.addProvider(event.includeClient(), new ModZhCnLangProvider(packOutput));
+        // 3. 标签生成
+        ModBlockTagsProvider blockTagsProvider = new ModBlockTagsProvider(packOutput, lookupProvider, existingFileHelper);
+        generator.addProvider(event.includeServer(), blockTagsProvider);
+        generator.addProvider(event.includeServer(), new ModItemTagsProvider(
+                packOutput,
+                lookupProvider,
+                blockTagsProvider.contentsGetter(),
+                existingFileHelper
+        ));
+        // 4. 工作台配方生成
+        generator.addProvider(event.includeServer(), new ModRecipeProvider(packOutput, lookupProvider));
+        // 5. 合金炉Alloy Smelter 配方生成
+        generator.addProvider(event.includeServer(), new AlloyRecipeProvider(packOutput));
+    }
+}
+>>>>>>>>> FILE_END: src/main/java/com/sakurain/re_endergy/util/datagen/DataGenerators.java <<<<<<<<<
+
+>>>>>>>>> FILE_START: src/main/java/com/sakurain/re_endergy/util/datagen/ModBlockTagsProvider.java <<<<<<<<<
+package com.sakurain.re_endergy.util.datagen;
+
+import com.sakurain.re_endergy.ReEndergy;
+import net.minecraft.core.HolderLookup;
+import net.minecraft.data.PackOutput;
+import net.neoforged.neoforge.common.data.BlockTagsProvider;
+import net.neoforged.neoforge.common.data.ExistingFileHelper;
+import org.jetbrains.annotations.Nullable;
+
+import java.util.concurrent.CompletableFuture;
+
+public class ModBlockTagsProvider extends BlockTagsProvider {
+    public ModBlockTagsProvider(PackOutput output, CompletableFuture<HolderLookup.Provider> lookupProvider, @Nullable ExistingFileHelper existingFileHelper) {
+        super(output, lookupProvider, ReEndergy.MODID, existingFileHelper);
+    }
+
+    @Override
+    protected void addTags(HolderLookup.Provider provider) {
+        // 目前没有新方块，这里留空即可
+        // 未来如果有新方块标签，写在这里
+
+    }
+}
+>>>>>>>>> FILE_END: src/main/java/com/sakurain/re_endergy/util/datagen/ModBlockTagsProvider.java <<<<<<<<<
+
+>>>>>>>>> FILE_START: src/main/java/com/sakurain/re_endergy/util/datagen/ModItemModelProvider.java <<<<<<<<<
+package com.sakurain.re_endergy.util.datagen;
+
+import com.sakurain.re_endergy.ReEndergy;
+import com.sakurain.re_endergy.util.item.CapacitorDef;
+import com.sakurain.re_endergy.util.item.GrindingBallDef;
+import com.sakurain.re_endergy.util.item.MaterialDef;
+import net.minecraft.data.PackOutput;
+import net.minecraft.world.item.Item;
+import net.neoforged.neoforge.client.model.generators.ItemModelBuilder;
+import net.neoforged.neoforge.client.model.generators.ItemModelProvider;
+import net.neoforged.neoforge.common.data.ExistingFileHelper;
+import net.neoforged.neoforge.registries.DeferredHolder;
+
+public class ModItemModelProvider extends ItemModelProvider {
+
+    public ModItemModelProvider(PackOutput output, ExistingFileHelper existingFileHelper) {
+        super(output, ReEndergy.MODID, existingFileHelper);
+    }
+
+    @Override
+    protected void registerModels() {
+        // 1. 生成磨珠模型 (指定存放在 "item/grinding_ball" 目录下)
+        for (GrindingBallDef def : GrindingBallDef.values()) {
+            simpleItemWithFolder(ReEndergy.BALL_ITEMS.get(def), "grinding_ball");
+        }
+
+        // 2. 生成电容模型 (指定存放在 "item/capacitor" 目录下)
+        for (CapacitorDef def : CapacitorDef.values()) {
+            simpleItemWithFolder(ReEndergy.CAPACITOR_ITEMS.get(def), "capacitor");
+        }
+
+        // 3. 生成材料模型 (使用枚举中定义的 subFolder属性，随机应变设置路径)
+        for (MaterialDef def : MaterialDef.values()) {
+            simpleItemWithFolder(ReEndergy.MATERIAL_ITEMS.get(def), def.subFolder);
+        }
+    }
+
+    /**
+     * 自定义的物品模型生成方法，支持子文件夹分类。
+     *
+     * @param itemHolder 物品注册对象
+     * @param subFolder  textures/item/ 下的子文件夹名称 (例如 "ball", "capacitor")
+     */
+    private ItemModelBuilder simpleItemWithFolder(DeferredHolder<Item, Item> itemHolder, String subFolder) {
+        String name = itemHolder.getId().getPath();
+        return withExistingParent(name, mcLoc("item/generated"))
+                .texture("layer0", modLoc("item/" + subFolder + "/" + name));
+    }
+}
+>>>>>>>>> FILE_END: src/main/java/com/sakurain/re_endergy/util/datagen/ModItemModelProvider.java <<<<<<<<<
+
+>>>>>>>>> FILE_START: src/main/java/com/sakurain/re_endergy/util/datagen/ModItemTagsProvider.java <<<<<<<<<
+package com.sakurain.re_endergy.util.datagen;
+
+import com.sakurain.re_endergy.ReEndergy;
+import com.sakurain.re_endergy.util.item.CapacitorDef;
+import com.sakurain.re_endergy.util.item.GrindingBallDef;
+import com.sakurain.re_endergy.util.item.MaterialDef;
+import net.minecraft.core.HolderLookup;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.data.PackOutput;
+import net.minecraft.data.tags.ItemTagsProvider;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.tags.TagKey;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.level.block.Block;
+import net.neoforged.neoforge.common.data.ExistingFileHelper;
+
+import java.util.concurrent.CompletableFuture;
+
+public class ModItemTagsProvider extends ItemTagsProvider {
+
+    public ModItemTagsProvider(PackOutput output, CompletableFuture<HolderLookup.Provider> lookupProvider, CompletableFuture<TagLookup<Block>> blockTags, ExistingFileHelper existingFileHelper) {
+        super(output, lookupProvider, blockTags, ReEndergy.MODID, existingFileHelper);
+    }
+
+    @Override
+    protected void addTags(HolderLookup.Provider provider) {
+        //注册磨珠标签
+        TagKey<Item> EIO_GRINDING_BALLS = TagKey.create(Registries.ITEM, ResourceLocation.parse("enderio:grinding_balls"));
+        var ballTagBuilder = tag(EIO_GRINDING_BALLS);
+        for (GrindingBallDef def : GrindingBallDef.values()) {
+            ballTagBuilder.add(ReEndergy.BALL_ITEMS.get(def).get());
+        }
+        // 注册电容标签
+        TagKey<Item> EIO_CAPACITORS = TagKey.create(Registries.ITEM, ResourceLocation.parse("enderio:capacitors"));
+        var capacitorTagBuilder = tag(EIO_CAPACITORS);
+        for (CapacitorDef def : CapacitorDef.values()) {
+            capacitorTagBuilder.add(ReEndergy.CAPACITOR_ITEMS.get(def).get());
+        }
+        for (MaterialDef def : MaterialDef.values()) {
+            // 获取对应的物品
+            var item = ReEndergy.MATERIAL_ITEMS.get(def).get();
+            // 遍历该材料定义的每一个标签
+            for (TagKey<Item> tagKey : def.tags) {
+                // 将物品加入到对应的标签中
+                tag(tagKey).add(item);
+            }
+        }
+    }
+}
+>>>>>>>>> FILE_END: src/main/java/com/sakurain/re_endergy/util/datagen/ModItemTagsProvider.java <<<<<<<<<
+
+>>>>>>>>> FILE_START: src/main/java/com/sakurain/re_endergy/util/datagen/ModRecipeProvider.java <<<<<<<<<
+package com.sakurain.re_endergy.util.datagen;
+
+import com.enderio.base.common.init.EIOItems;
+import com.sakurain.re_endergy.ReEndergy;
+import com.sakurain.re_endergy.util.item.CapacitorDef;
+import com.sakurain.re_endergy.util.item.GrindingBallDef;
+import com.sakurain.re_endergy.util.item.MaterialDef;
+import net.minecraft.core.HolderLookup;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.data.PackOutput;
+import net.minecraft.data.recipes.*;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.tags.TagKey;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.crafting.Ingredient;
+import net.minecraft.world.level.ItemLike;
+import net.neoforged.neoforge.common.conditions.IConditionBuilder;
+
+import java.util.concurrent.CompletableFuture;
+
+public class ModRecipeProvider extends RecipeProvider implements IConditionBuilder {
+
+    public ModRecipeProvider(PackOutput output, CompletableFuture<HolderLookup.Provider> registries) {
+        super(output, registries);
+    }
+
+    @Override
+    protected void buildRecipes(RecipeOutput output) {
+        //配方模板为：剑模板
+        //基岩粉电容
+        swordFormat(output, i(CapacitorDef.CAPACITOR_GRAINY), EIOItems.GRAINS_OF_INFINITY,Items.IRON_NUGGET, "capacitor");
+        //晶化电容，晶化合金锭*2+海晶砂粒+两种电容(生动合金电容或者八位电容)
+        ShapedRecipeBuilder.shaped(RecipeCategory.MISC, i(CapacitorDef.CAPACITOR_CRYSTALLINE))
+                .pattern(" J ")
+                .pattern("DHD")
+                .pattern(" J ")
+                .define('J', i(MaterialDef.CRYSTALLINE_ALLOY_INGOT))
+                .define('H', Items.PRISMARINE_CRYSTALS)
+                .define('D', Ingredient.of(
+                        i(CapacitorDef.CAPACITOR_VIVID),
+                        EIOItems.OCTADIC_CAPACITOR
+                ))
+                .unlockedBy("has_item", has(i(MaterialDef.CRYSTALLINE_ALLOY_INGOT)))
+                .save(output, path("capacitor", i(CapacitorDef.CAPACITOR_CRYSTALLINE)));
+        //旋律电容，旋律合金锭*2，晶化电容*2，末地钢
+        ShapedRecipeBuilder.shaped(RecipeCategory.MISC, i(CapacitorDef.CAPACITOR_MELODIC))
+                .pattern(" A ")
+                .pattern("CBC")
+                .pattern(" A ")
+                .define('A', i(MaterialDef.MELODIC_ALLOY_INGOT))
+                .define('B', EIOItems.DARK_STEEL_INGOT)
+                .define('C', i(CapacitorDef.CAPACITOR_CRYSTALLINE))
+                .unlockedBy("has_item", has(i(MaterialDef.MELODIC_ALLOY_INGOT)))
+                .save(output, path("capacitor", i(CapacitorDef.CAPACITOR_MELODIC)));
+        //恒星电容
+        ShapedRecipeBuilder.shaped(RecipeCategory.MISC, i(CapacitorDef.CAPACITOR_STELLAR))
+                .pattern(" A ")
+                .pattern("CBC")
+                .pattern(" A ")
+                .define('A', i(MaterialDef.STELLAR_ALLOY_INGOT))
+                .define('B', Items.SHULKER_SHELL)
+                .define('C', i(CapacitorDef.CAPACITOR_MELODIC))
+                .unlockedBy("has_item", has(i(MaterialDef.STELLAR_ALLOY_INGOT)))
+                .save(output, path("capacitor", i(CapacitorDef.CAPACITOR_STELLAR)));
+
+        //银制电容(由于目前银锭未能普鸡，热力膨胀，ic2等等还没打赢复活赛，因此修改了合成方式，银粒换成了铁粒)
+        ShapedRecipeBuilder.shaped(RecipeCategory.MISC, i(CapacitorDef.CAPACITOR_SILVER))
+                .pattern(" AB")
+                .pattern("ACA")
+                .pattern("BA ")
+                .define('A', Items.IRON_NUGGET)
+                .define('B', EIOItems.GRAINS_OF_INFINITY)
+                .define('C', Items.IRON_INGOT)
+                .unlockedBy("has_item", has(EIOItems.GRAINS_OF_INFINITY))
+                .save(output, path("capacitor", i(CapacitorDef.CAPACITOR_SILVER)));
+        //充能银制电容
+        ShapedRecipeBuilder.shaped(RecipeCategory.MISC, i(CapacitorDef.CAPACITOR_ENERGETIC_SILVER))
+                .pattern(" A ")
+                .pattern("CBC")
+                .pattern(" A ")
+                .define('A', i(MaterialDef.ENERGETIC_SILVER_INGOT))
+                .define('B', tag("c:dusts/coal"))
+                .define('C', i(CapacitorDef.CAPACITOR_SILVER))
+                .unlockedBy("has_item", has(i(CapacitorDef.CAPACITOR_SILVER)))
+                .save(output, path("capacitor", i(CapacitorDef.CAPACITOR_ENERGETIC_SILVER)));
+        //生动合金电容
+        ShapedRecipeBuilder.shaped(RecipeCategory.MISC, i(CapacitorDef.CAPACITOR_VIVID))
+                .pattern(" A ")
+                .pattern("CBC")
+                .pattern(" A ")
+                .define('A', i(MaterialDef.VIVID_ALLOY_INGOT))
+                .define('B', tag("c:storage_blocks/glowstone"))
+                .define('C', i(CapacitorDef.CAPACITOR_ENERGETIC_SILVER))
+                .unlockedBy("has_item", has(i(MaterialDef.VIVID_ALLOY_INGOT)))
+                .save(output, path("capacitor", i(CapacitorDef.CAPACITOR_VIVID)));
+        //配方模板为：十字形，磨珠模板
+        //粗钢磨珠
+        buildDiamond(output, GrindingBallDef.CRUDE_STEEL, i(MaterialDef.CRUDE_STEEL_INGOT), "grinding_ball");
+        //铁合金磨珠
+        buildDiamond(output, GrindingBallDef.ALLOY_BALL_CONSTRUCTION_ALLOY, i(MaterialDef.CONSTRUCTION_ALLOY_INGOT), "grinding_ball");
+        //末影磨珠，需要热力膨胀
+        //流明磨珠，需要热力膨胀
+        //信素磨珠，需要热力膨胀
+        //晶化合金磨珠
+        buildDiamond(output, GrindingBallDef.ALLOY_BALL_CRYSTALLINE_ALLOY, i(MaterialDef.CRYSTALLINE_ALLOY_INGOT), "grinding_ball");
+        //旋律合金磨珠
+        buildDiamond(output, GrindingBallDef.ALLOY_BALL_MELODIC_ALLOY, i(MaterialDef.MELODIC_ALLOY_INGOT), "grinding_ball");
+        //恒星合金磨珠
+        buildDiamond(output, GrindingBallDef.ALLOY_BALL_STELLAR_ALLOY, i(MaterialDef.STELLAR_ALLOY_INGOT), "grinding_ball");
+        //晶化粉红史莱姆磨珠，需要工业先锋
+        buildDiamond(output, GrindingBallDef.ALLOY_BALL_CRYSTALLINE_PINK_SLIME, i(MaterialDef.CRYSTALLINE_PINK_SLIME_INGOT), "grinding_ball");
+        //充能银磨珠
+        buildDiamond(output, GrindingBallDef.ALLOY_BALL_ENERGETIC_SILVER, i(MaterialDef.ENERGETIC_SILVER_INGOT), "grinding_ball");
+        //生动合金磨珠
+        buildDiamond(output, GrindingBallDef.ALLOY_BALL_VIVID_ALLOY, i(MaterialDef.VIVID_ALLOY_INGOT), "grinding_ball");
+
+        // 配方模板为：1个物品拆9个物品
+        //粗钢粒
+        //粗钢粒
+        buildUncompacting(output, MaterialDef.CRUDE_STEEL_INGOT, MaterialDef.CRUDE_STEEL_NUGGET, "nugget");
+        //铁合金粒
+        buildUncompacting(output, MaterialDef.CONSTRUCTION_ALLOY_INGOT, MaterialDef.CONSTRUCTION_ALLOY_NUGGET, "nugget");
+        //晶化合金粒
+        buildUncompacting(output, MaterialDef.CRYSTALLINE_ALLOY_INGOT, MaterialDef.CRYSTALLINE_ALLOY_NUGGET, "nugget");
+        //旋律合金粒
+        buildUncompacting(output, MaterialDef.MELODIC_ALLOY_INGOT, MaterialDef.MELODIC_ALLOY_NUGGET, "nugget");
+        //恒星合金粒
+        buildUncompacting(output, MaterialDef.STELLAR_ALLOY_INGOT, MaterialDef.STELLAR_ALLOY_NUGGET, "nugget");
+        //晶化粉红史莱姆粒
+        buildUncompacting(output, MaterialDef.CRYSTALLINE_PINK_SLIME_INGOT, MaterialDef.CRYSTALLINE_PINK_SLIME_NUGGET, "nugget");
+        //充能银粒
+        buildUncompacting(output, MaterialDef.ENERGETIC_SILVER_INGOT, MaterialDef.ENERGETIC_SILVER_NUGGET, "nugget");
+        //生动合金粒
+        buildUncompacting(output, MaterialDef.VIVID_ALLOY_INGOT, MaterialDef.VIVID_ALLOY_NUGGET, "nugget");
+
+        //配方模板为：9个物品围一圈合成一个物品
+        //粗钢锭
+        buildCompacting(output, MaterialDef.CRUDE_STEEL_INGOT, MaterialDef.CRUDE_STEEL_NUGGET, "ingot");
+        //铁合金锭
+        buildCompacting(output, MaterialDef.CONSTRUCTION_ALLOY_INGOT, MaterialDef.CONSTRUCTION_ALLOY_NUGGET, "ingot");
+        //晶化合金锭
+        buildCompacting(output, MaterialDef.CRYSTALLINE_ALLOY_INGOT, MaterialDef.CRYSTALLINE_ALLOY_NUGGET, "ingot");
+        //旋律合金锭
+        buildCompacting(output, MaterialDef.MELODIC_ALLOY_INGOT, MaterialDef.MELODIC_ALLOY_NUGGET, "ingot");
+        //恒星合金锭
+        buildCompacting(output, MaterialDef.STELLAR_ALLOY_INGOT, MaterialDef.STELLAR_ALLOY_NUGGET, "ingot");
+        //晶化粉红史莱姆锭
+        buildCompacting(output, MaterialDef.CRYSTALLINE_PINK_SLIME_INGOT, MaterialDef.CRYSTALLINE_PINK_SLIME_NUGGET, "ingot");
+        //充能银锭
+        buildCompacting(output, MaterialDef.ENERGETIC_SILVER_INGOT, MaterialDef.ENERGETIC_SILVER_NUGGET, "ingot");
+        //生动合金
+        buildCompacting(output, MaterialDef.VIVID_ALLOY_INGOT, MaterialDef.VIVID_ALLOY_NUGGET, "ingot");
+
+        // ===============================================
+        //  场景 2: 略微复杂的模板 (围一圈)
+        // ===============================================
+
+        // 比如：泥土混合钢 (中间泥土，周围8个钢) - 假设产物是 Construction Alloy
+        // 参数顺序：输出接口，产物，中间物品，周围物品，存哪儿
+//        buildSurround(output, MaterialDef.CONSTRUCTION_ALLOY_INGOT, Items.DIRT, i(MaterialDef.CRUDE_STEEL_INGOT), "ingot");
+
+
+
+        // ===============================================
+        //  场景 3: 高度自定义形状 (如：粗钢剑)
+        //  完全不需要声明变量名！
+        // ===============================================
+
+        // 假设你要做一个 "Crude Steel Sword" (这里用 Construction Alloy 举例，因为你还没注册剑)
+//        // 注意看：这里使用了链式调用，一气呵成
+//        ShapedRecipeBuilder.shaped(RecipeCategory.COMBAT, i(MaterialDef.CONSTRUCTION_ALLOY_INGOT)) // 这里填 output
+//                .pattern(" X ")
+//                .pattern(" X ")
+//                .pattern(" S ")
+//                .define('X', i(MaterialDef.CRUDE_STEEL_INGOT)) // 直接调用 i() 获取输入
+//                .define('S', Items.STICK)
+//                .unlockedBy("has_material", has(i(MaterialDef.CRUDE_STEEL_INGOT))) // 自动判断解锁
+//                .save(output, path("tools", "crude_steel_sword")); // 自定义存放：tools/crude_steel_sword.json
+    }
+
+
+    // =================================================================
+    //            工具箱 (Helper Methods) - 把脏活累活藏在这里
+    // =================================================================
+    // TagKey 字符串解析
+    private TagKey<Item> tag(String location) {
+        return TagKey.create(Registries.ITEM, ResourceLocation.parse(location));
+    }
+
+    /**
+     * 【极简取物】取 Material
+     */
+    private ItemLike i(MaterialDef def) {
+        return ReEndergy.MATERIAL_ITEMS.get(def).get();
+    }
+
+    /**
+     * 【极简取物】取 Grinding Ball
+     */
+    private ItemLike i(GrindingBallDef def) {
+        return ReEndergy.BALL_ITEMS.get(def).get();
+    }
+
+    /**
+     * 【极简取物】取 Capacitor (电容)
+     */
+    private ItemLike i(CapacitorDef def) {
+        return ReEndergy.CAPACITOR_ITEMS.get(def).get();
+    }
+
+    /**
+     * 【路径生成器】
+     * 自动加前缀 re_endergy: 并拼接文件夹
+     */
+    private ResourceLocation path(String folder, String name) {
+        return ResourceLocation.fromNamespaceAndPath(ReEndergy.MODID, folder + "/" + name);
+    }
+
+    // 重载方法：直接从 Item 对象取名
+    private ResourceLocation path(String folder, ItemLike item) {
+        // 使用 RecipeProvider 自带的 getItemName 方法，它只返回 "crude_steel_ball"
+        return path(folder, getItemName(item));
+    }
+
+    // --- 模板 1: 十字配方 (磨珠专用) ---
+    private void buildDiamond(RecipeOutput out, GrindingBallDef result, ItemLike input, String folder) {
+        ShapedRecipeBuilder.shaped(RecipeCategory.MISC, i(result),24)
+                .pattern(" X ")
+                .pattern("XXX")
+                .pattern(" X ")
+                .define('X', input)
+                .unlockedBy("has_item", has(input))
+                .save(out, path(folder, i(result)));
+    }
+
+    // --- 模板 2: 3x3 压缩 (9个B -> 1个A) ---
+    private void buildCompacting(RecipeOutput out, MaterialDef result, MaterialDef input, String folder) {
+        // 使用 Shapeless (无序) 还是 Shaped (有序) 取决于你，通常压缩块是 3x3 有序
+        ShapedRecipeBuilder.shaped(RecipeCategory.MISC, i(result))
+                .pattern("XXX")
+                .pattern("XXX")
+                .pattern("XXX")
+                .define('X', i(input))
+                .unlockedBy("has_item", has(i(input)))
+                .save(out, path(folder, i(result)));
+    }
+
+    // --- 模板 3: 1拆9 (1个A -> 9个B) ---
+    private void buildUncompacting(RecipeOutput out, MaterialDef result, MaterialDef input, String folder) {
+        ShapelessRecipeBuilder.shapeless(RecipeCategory.MISC, i(result), 9)
+                .requires(i(input))
+                .unlockedBy("has_item", has(i(input)))
+                .save(out, path(folder, i(result)));
+    }
+    // 钻石剑格式，以最顶上的物品为合成书解锁条件
+    private void swordFormat(RecipeOutput out, ItemLike result, ItemLike top,ItemLike body, String folder) {
+        // 使用 Shapeless (无序) 还是 Shaped (有序) 取决于你，通常压缩块是 3x3 有序
+        ShapedRecipeBuilder.shaped(RecipeCategory.MISC, result)
+                .pattern(" X ")
+                .pattern(" Y ")
+                .pattern(" Y ")
+                .define('X', top)
+                .define('Y', body)
+                .unlockedBy("has_item", has(top))
+                .save(out, path(folder, result));
+    }
+//    // --- 模板 4: 围一圈 (Surround) ---
+//    private void buildSurround(RecipeOutput out, MaterialDef result, ItemLike center, ItemLike surround, String folder) {
+//        ShapedRecipeBuilder.shaped(RecipeCategory.MISC, i(result))
+//                .pattern("SSS")
+//                .pattern("SCS")
+//                .pattern("SSS")
+//                .define('S', surround)
+//                .define('C', center)
+//                .unlockedBy("has_item", has(surround))
+//                .save(out, path(folder, i(result)));
+//    }
+}
+>>>>>>>>> FILE_END: src/main/java/com/sakurain/re_endergy/util/datagen/ModRecipeProvider.java <<<<<<<<<
+
+>>>>>>>>> FILE_START: src/main/java/com/sakurain/re_endergy/util/datagen/ModRecipeProvider_beifen.java <<<<<<<<<
+package com.sakurain.re_endergy.util.datagen;
+
+import com.enderio.base.common.init.EIOItems;
+import com.sakurain.re_endergy.ReEndergy;
+import com.sakurain.re_endergy.util.item.CapacitorDef;
+import com.sakurain.re_endergy.util.item.GrindingBallDef;
+import com.sakurain.re_endergy.util.item.MaterialDef;
+import net.minecraft.core.HolderLookup;
+import net.minecraft.data.PackOutput;
+import net.minecraft.data.recipes.*;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.ItemLike;
+import net.neoforged.neoforge.common.conditions.IConditionBuilder;
+
+import java.util.concurrent.CompletableFuture;
+
+public class ModRecipeProvider_beifen extends RecipeProvider implements IConditionBuilder {
+
+    public ModRecipeProvider_beifen(PackOutput output, CompletableFuture<HolderLookup.Provider> registries) {
+        super(output, registries);
+    }
+
+    @Override
+    protected void buildRecipes(RecipeOutput output) {
+        //配方模板为：剑模板
+        //基岩粉电容
+        swordFormat(output, i(CapacitorDef.CAPACITOR_GRAINY), EIOItems.GRAINS_OF_INFINITY,Items.IRON_NUGGET, "capacitor");
+        //配方模板为：十字形，磨珠模板
+        //粗钢磨珠
+        buildDiamond(output, GrindingBallDef.CRUDE_STEEL, i(MaterialDef.CRUDE_STEEL_INGOT), "grinding_ball");
+        //铁合金磨珠
+        buildDiamond(output, GrindingBallDef.ALLOY_BALL_CONSTRUCTION_ALLOY, i(MaterialDef.CONSTRUCTION_ALLOY_INGOT), "grinding_ball");
+        //末影磨珠，需要热力膨胀
+        //流明磨珠，需要热力膨胀
+        //信素磨珠，需要热力膨胀
+        //晶化合金磨珠
+        buildDiamond(output, GrindingBallDef.ALLOY_BALL_CRYSTALLINE_ALLOY, i(MaterialDef.CRYSTALLINE_ALLOY_INGOT), "grinding_ball");
+        //旋律合金磨珠
+        buildDiamond(output, GrindingBallDef.ALLOY_BALL_MELODIC_ALLOY, i(MaterialDef.MELODIC_ALLOY_INGOT), "grinding_ball");
+        //恒星合金磨珠
+        buildDiamond(output, GrindingBallDef.ALLOY_BALL_STELLAR_ALLOY, i(MaterialDef.STELLAR_ALLOY_INGOT), "grinding_ball");
+        //晶化粉红史莱姆磨珠，需要工业先锋
+        buildDiamond(output, GrindingBallDef.ALLOY_BALL_CRYSTALLINE_PINK_SLIME, i(MaterialDef.CRYSTALLINE_PINK_SLIME_INGOT), "grinding_ball");
+        //充能银磨珠
+        buildDiamond(output, GrindingBallDef.ALLOY_BALL_ENERGETIC_SILVER, i(MaterialDef.ENERGETIC_SILVER_INGOT), "grinding_ball");
+        //生动合金磨珠
+        buildDiamond(output, GrindingBallDef.ALLOY_BALL_VIVID_ALLOY, i(MaterialDef.VIVID_ALLOY_INGOT), "grinding_ball");
+
+        // 配方模板为：1个物品拆9个物品
+        //粗钢粒
+        //粗钢粒
+        buildUncompacting(output, MaterialDef.CRUDE_STEEL_INGOT, MaterialDef.CRUDE_STEEL_NUGGET, "nugget");
+        //铁合金粒
+        buildUncompacting(output, MaterialDef.CONSTRUCTION_ALLOY_INGOT, MaterialDef.CONSTRUCTION_ALLOY_NUGGET, "nugget");
+        //晶化合金粒
+        buildUncompacting(output, MaterialDef.CRYSTALLINE_ALLOY_INGOT, MaterialDef.CRYSTALLINE_ALLOY_NUGGET, "nugget");
+        //旋律合金粒
+        buildUncompacting(output, MaterialDef.MELODIC_ALLOY_INGOT, MaterialDef.MELODIC_ALLOY_NUGGET, "nugget");
+        //恒星合金粒
+        buildUncompacting(output, MaterialDef.STELLAR_ALLOY_INGOT, MaterialDef.STELLAR_ALLOY_NUGGET, "nugget");
+        //晶化粉红史莱姆粒
+        buildUncompacting(output, MaterialDef.CRYSTALLINE_PINK_SLIME_INGOT, MaterialDef.CRYSTALLINE_PINK_SLIME_NUGGET, "nugget");
+        //充能银粒
+        buildUncompacting(output, MaterialDef.ENERGETIC_SILVER_INGOT, MaterialDef.ENERGETIC_SILVER_NUGGET, "nugget");
+        //生动合金粒
+        buildUncompacting(output, MaterialDef.VIVID_ALLOY_INGOT, MaterialDef.VIVID_ALLOY_NUGGET, "nugget");
+
+        //配方模板为：9个物品围一圈合成一个物品
+        //粗钢锭
+        buildCompacting(output, MaterialDef.CRUDE_STEEL_INGOT, MaterialDef.CRUDE_STEEL_NUGGET, "ingot");
+        //铁合金锭
+        buildCompacting(output, MaterialDef.CONSTRUCTION_ALLOY_INGOT, MaterialDef.CONSTRUCTION_ALLOY_NUGGET, "ingot");
+        //晶化合金锭
+        buildCompacting(output, MaterialDef.CRYSTALLINE_ALLOY_INGOT, MaterialDef.CRYSTALLINE_ALLOY_NUGGET, "ingot");
+        //旋律合金锭
+        buildCompacting(output, MaterialDef.MELODIC_ALLOY_INGOT, MaterialDef.MELODIC_ALLOY_NUGGET, "ingot");
+        //恒星合金锭
+        buildCompacting(output, MaterialDef.STELLAR_ALLOY_INGOT, MaterialDef.STELLAR_ALLOY_NUGGET, "ingot");
+        //晶化粉红史莱姆锭
+        buildCompacting(output, MaterialDef.CRYSTALLINE_PINK_SLIME_INGOT, MaterialDef.CRYSTALLINE_PINK_SLIME_NUGGET, "ingot");
+        //充能银锭
+        buildCompacting(output, MaterialDef.ENERGETIC_SILVER_INGOT, MaterialDef.ENERGETIC_SILVER_NUGGET, "ingot");
+        //生动合金
+        buildCompacting(output, MaterialDef.VIVID_ALLOY_INGOT, MaterialDef.VIVID_ALLOY_NUGGET, "ingot");
+
+        // ===============================================
+        //  场景 2: 略微复杂的模板 (围一圈)
+        // ===============================================
+
+        // 比如：泥土混合钢 (中间泥土，周围8个钢) - 假设产物是 Construction Alloy
+        // 参数顺序：输出接口，产物，中间物品，周围物品，存哪儿
+//        buildSurround(output, MaterialDef.CONSTRUCTION_ALLOY_INGOT, Items.DIRT, i(MaterialDef.CRUDE_STEEL_INGOT), "ingot");
+
+
+        // ===============================================
+        //  场景 3: 高度自定义形状 (如：粗钢剑)
+        //  完全不需要声明变量名！
+        // ===============================================
+
+        // 假设你要做一个 "Crude Steel Sword" (这里用 Construction Alloy 举例，因为你还没注册剑)
+//        // 注意看：这里使用了链式调用，一气呵成
+//        ShapedRecipeBuilder.shaped(RecipeCategory.COMBAT, i(MaterialDef.CONSTRUCTION_ALLOY_INGOT)) // 这里填 output
+//                .pattern(" X ")
+//                .pattern(" X ")
+//                .pattern(" S ")
+//                .define('X', i(MaterialDef.CRUDE_STEEL_INGOT)) // 直接调用 i() 获取输入
+//                .define('S', Items.STICK)
+//                .unlockedBy("has_material", has(i(MaterialDef.CRUDE_STEEL_INGOT))) // 自动判断解锁
+//                .save(output, path("tools", "crude_steel_sword")); // 自定义存放：tools/crude_steel_sword.json
+    }
+
+
+    // =================================================================
+    //            工具箱 (Helper Methods) - 把脏活累活藏在这里
+    // =================================================================
+    /**
+     * 【极简取物】取 Material
+     */
+    private ItemLike i(MaterialDef def) {
+        return ReEndergy.MATERIAL_ITEMS.get(def).get();
+    }
+
+    /**
+     * 【极简取物】取 Grinding Ball
+     */
+    private ItemLike i(GrindingBallDef def) {
+        return ReEndergy.BALL_ITEMS.get(def).get();
+    }
+
+    /**
+     * 【极简取物】取 Capacitor (电容)
+     */
+    private ItemLike i(CapacitorDef def) {
+        return ReEndergy.CAPACITOR_ITEMS.get(def).get();
+    }
+
+    /**
+     * 【路径生成器】
+     * 自动加前缀 re_endergy: 并拼接文件夹
+     */
+    private ResourceLocation path(String folder, String name) {
+        return ResourceLocation.fromNamespaceAndPath(ReEndergy.MODID, folder + "/" + name);
+    }
+
+    // 重载方法：直接从 Item 对象取名
+    private ResourceLocation path(String folder, ItemLike item) {
+        // 使用 RecipeProvider 自带的 getItemName 方法，它只返回 "crude_steel_ball"
+        return path(folder, getItemName(item));
+    }
+
+    // --- 模板 1: 十字配方 (磨珠专用) ---
+    private void buildDiamond(RecipeOutput out, GrindingBallDef result, ItemLike input, String folder) {
+        ShapedRecipeBuilder.shaped(RecipeCategory.MISC, i(result),24)
+                .pattern(" X ")
+                .pattern("XXX")
+                .pattern(" X ")
+                .define('X', input)
+                .unlockedBy("has_item", has(input))
+                .save(out, path(folder, i(result)));
+    }
+
+    // --- 模板 2: 3x3 压缩 (9个B -> 1个A) ---
+    private void buildCompacting(RecipeOutput out, MaterialDef result, MaterialDef input, String folder) {
+        // 使用 Shapeless (无序) 还是 Shaped (有序) 取决于你，通常压缩块是 3x3 有序
+        ShapedRecipeBuilder.shaped(RecipeCategory.MISC, i(result))
+                .pattern("XXX")
+                .pattern("XXX")
+                .pattern("XXX")
+                .define('X', i(input))
+                .unlockedBy("has_item", has(i(input)))
+                .save(out, path(folder, i(result)));
+    }
+
+    // --- 模板 3: 1拆9 (1个A -> 9个B) ---
+    private void buildUncompacting(RecipeOutput out, MaterialDef result, MaterialDef input, String folder) {
+        ShapelessRecipeBuilder.shapeless(RecipeCategory.MISC, i(result), 9)
+                .requires(i(input))
+                .unlockedBy("has_item", has(i(input)))
+                .save(out, path(folder, i(result)));
+    }
+    // 钻石剑格式，以最顶上的物品为合成书解锁条件
+    private void swordFormat(RecipeOutput out, ItemLike result, ItemLike top,ItemLike body, String folder) {
+        // 使用 Shapeless (无序) 还是 Shaped (有序) 取决于你，通常压缩块是 3x3 有序
+        ShapedRecipeBuilder.shaped(RecipeCategory.MISC, result)
+                .pattern(" X ")
+                .pattern(" Y ")
+                .pattern(" Y ")
+                .define('X', top)
+                .define('Y', body)
+                .unlockedBy("has_item", has(top))
+                .save(out, path(folder, result));
+    }
+//    // --- 模板 4: 围一圈 (Surround) ---
+//    private void buildSurround(RecipeOutput out, MaterialDef result, ItemLike center, ItemLike surround, String folder) {
+//        ShapedRecipeBuilder.shaped(RecipeCategory.MISC, i(result))
+//                .pattern("SSS")
+//                .pattern("SCS")
+//                .pattern("SSS")
+//                .define('S', surround)
+//                .define('C', center)
+//                .unlockedBy("has_item", has(surround))
+//                .save(out, path(folder, i(result)));
+//    }
+}
+>>>>>>>>> FILE_END: src/main/java/com/sakurain/re_endergy/util/datagen/ModRecipeProvider_beifen.java <<<<<<<<<
+
+>>>>>>>>> FILE_START: src/main/java/com/sakurain/re_endergy/util/datagen/ModZhCnLangProvider.java <<<<<<<<<
+package com.sakurain.re_endergy.util.datagen;
+
+import com.sakurain.re_endergy.ReEndergy;
+import com.sakurain.re_endergy.util.item.CapacitorDef;
+import com.sakurain.re_endergy.util.item.GrindingBallDef;
+import com.sakurain.re_endergy.util.item.MaterialDef;
+import net.minecraft.data.PackOutput;
+import net.neoforged.neoforge.common.data.LanguageProvider;
+
+public class ModZhCnLangProvider extends LanguageProvider {
+
+    public ModZhCnLangProvider(PackOutput output) {
+        super(output, ReEndergy.MODID, "zh_cn");
+    }
+
+    @Override
+    protected void addTranslations() {
+        // 创造模式物品栏
+        add("itemGroup.endergy_resurrected", "末影接口:管道拓展重制版");
+        // 磨珠翻译
+        for (GrindingBallDef def : GrindingBallDef.values()) {
+            add(ReEndergy.BALL_ITEMS.get(def).get(), def.zhName);
+        }
+        // 电容翻译
+        for (CapacitorDef def : CapacitorDef.values()) {
+            add(ReEndergy.CAPACITOR_ITEMS.get(def).get(), def.zhName);
+        }
+        // 通用材料翻译，比如金属锭、金属粒、金属粉
+        for (MaterialDef def : MaterialDef.values()) {
+            add(ReEndergy.MATERIAL_ITEMS.get(def).get(), def.zhName);
+        }
+    }
+}
+>>>>>>>>> FILE_END: src/main/java/com/sakurain/re_endergy/util/datagen/ModZhCnLangProvider.java <<<<<<<<<
+
+>>>>>>>>> FILE_START: src/main/java/com/sakurain/re_endergy/util/datagen/alloy_smelter/AlloyRecipeProvider.java <<<<<<<<<
+package com.sakurain.re_endergy.util.datagen.alloy_smelter;
+
+import com.enderio.base.common.init.EIOItems;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+import com.sakurain.re_endergy.ReEndergy;
+import com.sakurain.re_endergy.util.item.MaterialDef;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.data.CachedOutput;
+import net.minecraft.data.DataProvider;
+import net.minecraft.data.PackOutput;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.tags.TagKey;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.ItemLike;
+import org.jetbrains.annotations.Nullable;
+
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * 专门用于生成 Ender IO 合金炉 (Alloy Smelter) 配方 JSON 的 Provider
+ * 绕过了原版 RecipeProvider 的 Serializer 检查
+ */
+public class AlloyRecipeProvider implements DataProvider {
+    private final PackOutput packOutput;
+
+    public AlloyRecipeProvider(PackOutput packOutput) {
+        this.packOutput = packOutput;
+    }
+
+    @Override
+    public CompletableFuture<?> run(CachedOutput cache) {
+        List<CompletableFuture<?>> futures = new ArrayList<>();
+
+        // 合金炉制造物品配方
+        // 粗钢锭: 沙砾 + 黏土球 + 圆石通用tag
+        new AlloyBuilder(i(MaterialDef.CRUDE_STEEL_INGOT))
+                .setEnergy(10000).setExp(0.5f)
+                .addInput(Items.IRON_INGOT)
+                .addInput(Items.CLAY_BALL)
+                .addInput(tag("c:cobblestones"))
+                .save(futures, cache);
+
+        // 铁合金锭: 铜 + 铁 + 沙砾
+        new AlloyBuilder(i(MaterialDef.CONSTRUCTION_ALLOY_INGOT))
+                .setEnergy(10000).setExp(0.3f)
+                .addInput(Items.COPPER_INGOT)
+                .addInput(Items.IRON_INGOT)
+                .addInput(Items.GRAVEL)
+                .save(futures, cache);
+
+        // 充能银锭: 红石 + 银(通用标签) + 萤石
+        new AlloyBuilder(i(MaterialDef.ENERGETIC_SILVER_INGOT))
+                .setEnergy(10000).setExp(0.8f)
+                .addInput(Items.REDSTONE)
+                .addInput(tag("c:ingots/silver"))
+                .addInput(Items.GLOWSTONE_DUST)
+                .save(futures, cache);
+
+        // 晶化合金锭: 金锭 + 脉冲水晶粉
+        new AlloyBuilder(i(MaterialDef.CRYSTALLINE_ALLOY_INGOT))
+                .setEnergy(10000).setExp(1.0f)
+                .addInput(EIOItems.PULSATING_POWDER)
+                .addInput(EIOItems.PULSATING_ALLOY_INGOT)
+                .save(futures, cache);
+
+        // 旋律合金锭: 爆裂紫颂果 + 末影钢
+        new AlloyBuilder(i(MaterialDef.MELODIC_ALLOY_INGOT))
+                .setEnergy(10000).setExp(1.5f)
+                .addInput(Items.POPPED_CHORUS_FRUIT)
+                .addInput(EIOItems.END_STEEL_INGOT)
+                .save(futures, cache);
+
+        // 恒星合金锭: 下界之星 + 旋律合金 + 黏土球*4
+        new AlloyBuilder(i(MaterialDef.STELLAR_ALLOY_INGOT))
+                .setEnergy(80000).setExp(3.0f)
+                .addInput(Items.NETHER_STAR)
+                .addInput(i(MaterialDef.MELODIC_ALLOY_INGOT))
+                .addInput(Items.CLAY_BALL,4)
+                .save(futures, cache);
+
+        // 晶化粉红史莱姆锭: 晶化合金 + 粉红史莱姆 (ID为 industrialforegoing:pink_slime)
+        // 只有在检测到工业先锋 Mod 时才加载此配方
+        new AlloyBuilder(i(MaterialDef.CRYSTALLINE_PINK_SLIME_INGOT))
+                .setEnergy(10000).setExp(1.2f)
+                .addInput(i(MaterialDef.CRYSTALLINE_ALLOY_INGOT))
+                .addInput("industrialforegoing:pink_slime", 1)
+                .onlyIfModLoaded("industrialforegoing") // 添加 Mod 存在判断条件
+                .save(futures, cache);
+
+        // 晶化粉红史莱姆锭 (通用合成 - 兜底方案)
+        // 配方：晶化合金 + 史莱姆球*4 + (粉红色染料 OR 品红色染料)
+        // 策略：由于 EIO 配方格式限制，无法在一个槽位内写 OR 逻辑，因此循环生成两个独立文件
+
+        // 定义染料后缀 -> 对应 Tag
+        Map<String, TagKey<Item>> dyeVariants = Map.of(
+                "pink", tag("c:dyes/pink"),
+                "magenta", tag("c:dyes/magenta")
+        );
+
+        // 循环生成：_synthetic_pink.json 和 _synthetic_magenta.json
+        dyeVariants.forEach((suffix, dyeTag) -> {
+            new AlloyBuilder(i(MaterialDef.CRYSTALLINE_PINK_SLIME_INGOT))
+                    .setFileName("crystalline_pink_slime_ingot_synthetic_" + suffix) // 防止文件名冲突
+                    .setEnergy(15000).setExp(1.0f)
+                    .addInput(i(MaterialDef.CRYSTALLINE_ALLOY_INGOT))
+                    .addInput(Items.SLIME_BALL, 4)
+                    .addInput(dyeTag) // 单一 Tag，格式标准
+                    .save(futures, cache);
+        });
+
+        // [8] 生动合金锭: 充能银 + 末影珍珠
+        new AlloyBuilder(i(MaterialDef.VIVID_ALLOY_INGOT))
+                .setEnergy(10000).setExp(1.0f)
+                .addInput(i(MaterialDef.ENERGETIC_SILVER_INGOT))
+                .addInput(Items.ENDER_PEARL)
+                .save(futures, cache);
+
+        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
+    }
+
+    @Override
+    public String getName() {
+        return "Alloy Smelter Recipes (Custom JSON)";
+    }
+
+    // --- 极简辅助方法 ---
+    private ItemLike i(MaterialDef def) { return ReEndergy.MATERIAL_ITEMS.get(def).get(); }
+    private TagKey<Item> tag(String location) { return net.minecraft.tags.ItemTags.create(ResourceLocation.parse(location)); }
+
+    // ================== 内部构建器 ==================
+
+    private class AlloyBuilder {
+        private final ItemLike result;
+        private int count = 1;
+        private int energy = 2000;
+        private float experience = 0.5f;
+        private final List<InputData> inputs = new ArrayList<>();
+
+        // 存储 NeoForge 条件 (Conditions)
+        private final JsonArray conditions = new JsonArray();
+        // 自定义文件名 (若为 null 则使用物品 ID)
+        private String customFileName = null;
+
+        public AlloyBuilder(ItemLike result) { this.result = result; }
+
+        public AlloyBuilder setCount(int c) { this.count = c; return this; }
+        public AlloyBuilder setEnergy(int e) { this.energy = e; return this; }
+        public AlloyBuilder setExp(float e) { this.experience = e; return this; }
+
+        // 设置自定义输出文件名 (不带 .json 后缀)
+        public AlloyBuilder setFileName(String name) { this.customFileName = name; return this; }
+
+        public AlloyBuilder addInput(ItemLike item) { return addInput(item, 1); }
+        public AlloyBuilder addInput(ItemLike item, int c) { inputs.add(new InputData(item, null, null, c)); return this; }
+
+        public AlloyBuilder addInput(TagKey<Item> tag) { return addInput(tag, 1); }
+        public AlloyBuilder addInput(TagKey<Item> tag, int c) { inputs.add(new InputData(null, tag, null, c)); return this; }
+
+        public AlloyBuilder addInput(String id, int c) { inputs.add(new InputData(null, null, id, c)); return this; }
+
+        // 添加 neoforge:mod_loaded 条件
+        public AlloyBuilder onlyIfModLoaded(String modid) {
+            JsonObject condition = new JsonObject();
+            condition.addProperty("type", "neoforge:mod_loaded");
+            condition.addProperty("modid", modid);
+            this.conditions.add(condition);
+            return this;
+        }
+
+        public void save(List<CompletableFuture<?>> futures, CachedOutput cache) {
+            ResourceLocation resultId = BuiltInRegistries.ITEM.getKey(result.asItem());
+
+            // 优先使用自定义文件名，否则使用物品路径
+            String pathName = (customFileName != null) ? customFileName : resultId.getPath();
+
+            // 构造保存路径: data/re_endergy/recipe/alloy_smelter/xxx.json
+            Path jsonPath = packOutput.getOutputFolder(PackOutput.Target.DATA_PACK)
+                    .resolve(ReEndergy.MODID)
+                    .resolve("recipe")
+                    .resolve("alloy_smelter")
+                    .resolve(pathName + ".json");
+
+            // 构建 JSON
+            JsonObject json = new JsonObject();
+
+            // 如果有加载条件，写入 neoforge:conditions
+            if (!conditions.isEmpty()) {
+                json.add("neoforge:conditions", conditions);
+            }
+
+            json.addProperty("type", "enderio:alloy_smelting");
+            json.addProperty("energy", energy);
+            json.addProperty("experience", experience);
+
+            JsonArray inputsArray = new JsonArray();
+            for (InputData in : inputs) {
+                JsonObject entry = new JsonObject();
+                entry.addProperty("count", in.count);
+                if (in.tag != null) entry.addProperty("tag", in.tag.location().toString());
+                else if (in.item != null) entry.addProperty("item", BuiltInRegistries.ITEM.getKey(in.item.asItem()).toString());
+                else if (in.rawId != null) entry.addProperty("item", in.rawId);
+                inputsArray.add(entry);
+            }
+            json.add("inputs", inputsArray);
+
+            JsonObject outputObj = new JsonObject();
+            outputObj.addProperty("count", count);
+            outputObj.addProperty("id", resultId.toString());
+            json.add("output", outputObj);
+
+            // 保存
+            futures.add(DataProvider.saveStable(cache, json, jsonPath));
+        }
+    }
+
+    private record InputData(@Nullable ItemLike item, @Nullable TagKey<Item> tag, @Nullable String rawId, int count) {}
+}
+>>>>>>>>> FILE_END: src/main/java/com/sakurain/re_endergy/util/datagen/alloy_smelter/AlloyRecipeProvider.java <<<<<<<<<
+
+>>>>>>>>> FILE_START: src/main/java/com/sakurain/re_endergy/util/item/CapacitorDef.java <<<<<<<<<
+package com.sakurain.re_endergy.util.item;
+
+
+public enum CapacitorDef {
+    //基岩粉电容
+    CAPACITOR_GRAINY("capacitor_grainy", "基岩粉电容", 1f),
+    //晶化电容
+    CAPACITOR_CRYSTALLINE("capacitor_crystalline", "晶化电容", 3.5f),
+    //旋律电容
+    CAPACITOR_MELODIC("capacitor_melodic", "旋律电容", 4f),
+    //恒星电容
+    CAPACITOR_STELLAR("capacitor_stellar", "恒星电容", 5f),
+
+    //银制电容
+    CAPACITOR_SILVER("capacitor_silver", "银制电容", 1f),
+    //充能银制电容
+    CAPACITOR_ENERGETIC_SILVER("capacitor_energetic_silver", "充能银制电容", 2f),
+    //生动合金电容
+    CAPACITOR_VIVID("capacitor_vivid", "生动合金电容", 3f),
+    ;
+    public final String name;
+    public final String zhName;
+    public final float baseLevel;
+
+    CapacitorDef(String name, String zhName, float baseLevel) {
+        this.name = name;
+        this.zhName = zhName;
+        this.baseLevel = baseLevel;
+    }
+}
+>>>>>>>>> FILE_END: src/main/java/com/sakurain/re_endergy/util/item/CapacitorDef.java <<<<<<<<<
+
+>>>>>>>>> FILE_START: src/main/java/com/sakurain/re_endergy/util/item/GrindingBallDef.java <<<<<<<<<
+package com.sakurain.re_endergy.util.item;
+
+import com.sakurain.re_endergy.ReEndergy;
+
+/**
+ * 磨珠定义枚举
+ *在此处添加一行枚举，即可自动完成：物品注册 + 配置文件生成 + 模型关联(需配合DataGen)
+ */
+public enum GrindingBallDef {
+    // 格式: 注册名, 主产物倍率, 副产物倍率, 能耗倍率, 耐久度
+    //粗钢磨珠
+    CRUDE_STEEL("crude_steel_ball","粗钢磨珠", 1.2, 1.2, 0.85, 24000),
+    //铁合金磨珠
+    ALLOY_BALL_CONSTRUCTION_ALLOY("alloy_ball_construction_alloy","铁合金磨珠", 1, 0.33, 0.25, 12000),
+//    //末影磨珠，需要热力膨胀
+//    GRINDING_BALL_ENDERIUM("grinding_ball_enderium","末影磨珠", 1.65, 1.45, 1.25, 120000),
+//    //流明磨珠，需要热力膨胀
+//    GRINDING_BALL_LUMIUM("grinding_ball_lumium","流明磨珠", 1.1, 2.11, 0.9, 100000),
+//    //信素磨珠，需要热力膨胀
+//    GRINDING_BALL_SIGNALUM("grinding_ball_signalum","信素磨珠", 1.2, 1.65, 0.35, 100000),
+    //晶化合金磨珠
+    ALLOY_BALL_CRYSTALLINE_ALLOY("alloy_ball_crystalline_alloy","晶化合金磨珠", 1.8, 1.4, 1.45, 80000),
+    //旋律合金磨珠
+    ALLOY_BALL_MELODIC_ALLOY("alloy_ball_melodic_alloy","旋律合金磨珠", 2, 1.45, 1.55, 80000),
+    //恒星合金磨珠
+    ALLOY_BALL_STELLAR_ALLOY("alloy_ball_stellar_alloy","恒星合金磨珠", 2.3, 2.25, 2.2, 160000),
+    //晶化粉红史莱姆磨珠
+    ALLOY_BALL_CRYSTALLINE_PINK_SLIME("alloy_ball_crystalline_pink_slime","晶化粉红史莱姆磨珠", 1.75, 1.55, 1.55, 80000),
+    //充能银磨珠
+    ALLOY_BALL_ENERGETIC_SILVER("alloy_ball_energetic_silver","充能银磨珠", 1.6, 1.6, 1.1, 80000),
+    //生动合金磨珠
+    ALLOY_BALL_VIVID_ALLOY("alloy_ball_vivid_alloy","生动合金磨珠", 1.75, 1.35, 1.35, 80000),
+    //下面是原创磨珠时间了
+    //空间坍塌磨珠
+
+    ;
+;
+
+    public final String name;   // 必须是英文，对应贴图文件名
+    public final String zhName; // 这里存中文
+
+    public final double defaultOutput;
+    public final double defaultBonus;
+    public final double defaultPower;
+    public final int defaultDuration;
+
+    GrindingBallDef(String name, String zhName, double defaultOutput, double defaultBonus, double defaultPower, int defaultDuration) {
+        this.name = name;
+        this.zhName = zhName;
+        this.defaultOutput = defaultOutput;
+        this.defaultBonus = defaultBonus;
+        this.defaultPower = defaultPower;
+        this.defaultDuration = defaultDuration;
+    }
+
+    // 获取翻译键 (便于 DataGen 使用)
+    public String getTranslationKey() {
+        return "item." + ReEndergy.MODID + "." + name;
+    }
+}
+>>>>>>>>> FILE_END: src/main/java/com/sakurain/re_endergy/util/item/GrindingBallDef.java <<<<<<<<<
+
+>>>>>>>>> FILE_START: src/main/java/com/sakurain/re_endergy/util/item/MaterialDef.java <<<<<<<<<
+package com.sakurain.re_endergy.util.item;
+
+import com.sakurain.re_endergy.ReEndergy;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.tags.TagKey;
+import net.minecraft.world.item.Item;
+
+import java.util.List;
+
+/**
+ * 通用材料定义枚举
+ * 用于注册锭(Ingot)、粒(Nugget)等基础材料
+ */
+public enum MaterialDef {
+    /*
+     * =============== 如何添加标签 (How to add tags) ===============
+     * 目前所有物品默认没有标签（空列表）。
+     * 如果以后需要添加标签，请在最后面使用逗号分隔，调用 helper 方法。
+     *
+     * 示例 (Example):
+     * CRUDE_STEEL_INGOT(..., "ingot", commonTag("ingots"), commonTag("ingots/crude_steel")),
+     *
+     * 解释:
+     * commonTag("ingots") -> 生成 c:ingots 标签
+     * eioTag("gears")     -> 生成 enderio:gears 标签
+     * ============================================================
+     */
+
+    // 格式: 注册名, 中文名，要存放的文件夹，标签列表(留空即为无标签)
+
+    // 粗钢锭、粗钢粒
+    CRUDE_STEEL_INGOT("crude_steel_ingot", "粗钢锭","ingot"),
+    CRUDE_STEEL_NUGGET("crude_steel_nugget", "粗钢粒","nugget"),
+
+    //铁合金锭、铁合金粒
+    CONSTRUCTION_ALLOY_INGOT("construction_alloy_ingot", "铁合金锭","ingot"),
+    CONSTRUCTION_ALLOY_NUGGET("construction_alloy_nugget", "铁合金粒","nugget"),
+
+//    //末影磨珠，需要热力膨胀
+//    GRINDING_BALL_ENDERIUM("grinding_ball_enderium","末影磨珠", 1.65, 1.45, 1.25, 120000),
+//    //流明磨珠，需要热力膨胀
+//    GRINDING_BALL_LUMIUM("grinding_ball_lumium","流明磨珠", 1.1, 2.1, 0.9, 100000),
+//    //信素磨珠，需要热力膨胀
+//    GRINDING_BALL_SIGNALUM("grinding_ball_signalum","信素磨珠", 1.2, 1.65, 0.35, 100000),
+
+    //晶化合金锭、晶化合金粒
+    CRYSTALLINE_ALLOY_INGOT("crystalline_alloy_ingot", "晶化合金锭","ingot"),
+    CRYSTALLINE_ALLOY_NUGGET("crystalline_alloy_nugget", "晶化合金粒","nugget"),
+
+    //旋律合金锭、旋律合金粒
+    MELODIC_ALLOY_INGOT("melodic_alloy_ingot", "旋律合金锭","ingot"),
+    MELODIC_ALLOY_NUGGET("melodic_alloy_nugget", "旋律合金粒","nugget"),
+
+    //恒星合金锭、恒星合金粒
+    STELLAR_ALLOY_INGOT("stellar_alloy_ingot", "恒星合金锭","ingot"),
+    STELLAR_ALLOY_NUGGET("stellar_alloy_nugget", "恒星合金粒","nugget"),
+
+    //晶化粉红史莱姆锭、晶化粉红史莱姆粒，需要工业先锋
+    CRYSTALLINE_PINK_SLIME_INGOT("crystalline_pink_slime_ingot", "晶化粉红史莱姆锭","ingot"),
+    CRYSTALLINE_PINK_SLIME_NUGGET("crystalline_pink_slime_nugget", "晶化粉红史莱姆粒","nugget"),
+
+    //充能银锭、充能银粒
+    ENERGETIC_SILVER_INGOT("energetic_silver_ingot", "充能银锭","ingot"),
+    ENERGETIC_SILVER_NUGGET("energetic_silver_nugget", "充能银粒","nugget"),
+
+    //生动合金锭、生动合金粒
+    VIVID_ALLOY_INGOT("vivid_alloy_ingot", "生动合金锭","ingot"),
+    VIVID_ALLOY_NUGGET("vivid_alloy_nugget", "生动合金粒","nugget"),
+    ;
+
+    public final String name;
+    public final String zhName;
+    public final String subFolder;
+    public final List<TagKey<Item>> tags;
+
+    // 添加 @SafeVarargs 是为了消除 "Possible heap pollution" 警告，因为这是泛型可变参数
+    @SafeVarargs
+    MaterialDef(String name, String zhName, String subFolder, TagKey<Item>... tags) {
+        this.name = name;
+        this.zhName = zhName;
+        this.subFolder= subFolder;
+        // 将数组转为不可变列表存储，性能高且安全
+        // 如果没有传递 tags 参数，这里会生成一个空的 List，完全符合你的需求
+        this.tags = List.of(tags);
+    }
+
+    // 辅助：获取翻译键
+    public String getTranslationKey() {
+        return "item." + ReEndergy.MODID + "." + name;
+    }
+    // --- 静态辅助方法：快速生成 TagKey ---
+
+    /**
+     * 生成 "c" 命名空间下的通用标签 (Common Tags)
+     * 用法: commonTag("ingots") 或 commonTag("ingots/copper")
+     */
+    private static TagKey<Item> commonTag(String path) {
+        return TagKey.create(Registries.ITEM, ResourceLocation.fromNamespaceAndPath("c", path));
+    }
+
+    /**
+     * 生成 "enderio" 命名空间下的标签 (如果需要)
+     */
+    private static TagKey<Item> eioTag(String path) {
+        return TagKey.create(Registries.ITEM, ResourceLocation.fromNamespaceAndPath("enderio", path));
+    }
+}
+>>>>>>>>> FILE_END: src/main/java/com/sakurain/re_endergy/util/item/MaterialDef.java <<<<<<<<<
+
+>>>>>>>>> FILE_START: src/main/resources/pack.mcmeta <<<<<<<<<
+{
+  "pack": {
+    "description": {
+      "text": "Endergy Resurrected resources"
+    },
+    "pack_format": 48
+  }
+}
+>>>>>>>>> FILE_END: src/main/resources/pack.mcmeta <<<<<<<<<
+
